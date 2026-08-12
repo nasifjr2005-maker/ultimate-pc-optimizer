@@ -26,10 +26,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller
 
-      - name: Convert logo to ICO
+      - name: Render vector logo to PNG and ICO
         shell: pwsh
         run: |
-          python -c "from PIL import Image; im=Image.open('assets/panel50.png').convert('RGBA'); im.save('assets/panel50.ico', sizes=[(256,256),(128,128),(64,64),(48,48),(32,32),(16,16)])"
+          python -c "from PySide6.QtGui import QGuiApplication,QImage,QPainter; from PySide6.QtSvg import QSvgRenderer; from PIL import Image; app=QGuiApplication([]); image=QImage(512,512,QImage.Format_ARGB32); image.fill(0); p=QPainter(image); QSvgRenderer('assets/panel50.svg').render(p); p.end(); image.save('assets/panel50.png'); Image.open('assets/panel50.png').save('assets/panel50.ico',sizes=[(256,256),(128,128),(64,64),(48,48),(32,32),(16,16)])"
 
       - name: Build application
         shell: cmd
@@ -38,6 +38,7 @@ jobs:
           --name "PNL50 PC OPTIMIZER PRO"
           --icon assets/panel50.ico
           --add-data "assets;assets"
+          --hidden-import PySide6.QtSvg
           app.py
 
       - name: Build installer
