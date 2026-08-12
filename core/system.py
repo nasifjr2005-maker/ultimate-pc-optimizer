@@ -3,6 +3,7 @@ from __future__ import annotations
 import ctypes
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -146,18 +147,24 @@ def set_high_performance_power_plan() -> tuple[bool, str]:
 
 
 def set_ultimate_performance_power_plan() -> tuple[bool, str]:
+    template = "e9a42b02-d5df-448d-aa00-03f14749eb61"
     try:
         check = subprocess.run(["powercfg", "/list"], capture_output=True, text=True, timeout=15)
-        if "e9a42b02-d5df-448d-aa00-03f14749eb61" in check.stdout.lower():
-            subprocess.run(["powercfg", "/setactive", "e9a42b02-d5df-448d-aa00-03f14749eb61"], capture_output=True, timeout=15)
-            return True, "Ultimate Performance power plan enabled."
-        dup = subprocess.run(["powercfg", "-duplicatescheme", "e9a42b02-d5df-448d-aa00-03f14749eb61"], capture_output=True, text=True, timeout=15)
-        if dup.returncode != 0:
-            return set_high_performance_power_plan()
-        subprocess.run(["powercfg", "/setactive", "e9a42b02-d5df-448d-aa00-03f14749eb61"], capture_output=True, timeout=15)
-        return True, "Ultimate Performance power plan created and enabled."
+        if template in check.stdout.lower():
+            active = subprocess.run(["powercfg", "/setactive", template], capture_output=True, text=True, timeout=15)
+            if active.returncode == 0:
+                return True, "Ultimate Performance power plan enabled."
+        dup = subprocess.run(["powercfg", "-duplicatescheme", template], capture_output=True, text=True, timeout=20)
+        if dup.returncode == 0:
+            match = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", dup.stdout + "\n" + dup.stderr)
+            if match:
+                guid = match.group(1)
+                active = subprocess.run(["powercfg", "/setactive", guid], capture_output=True, text=True, timeout=15)
+                if active.returncode == 0:
+                    return True, "Ultimate Performance power plan created and enabled."
+        return set_high_performance_power_plan()
     except Exception as exc:
-        return set_high_performance_power_plan() if not isinstance(exc, KeyboardInterrupt) else (False, str(exc))
+        return set_high_performance_power_plan() if isinstance(exc, OSError) else (False, str(exc))
 
 
 def set_process_high_priority(pid: int) -> tuple[bool, str]:
@@ -182,12 +189,7 @@ def run_powershell(script: str, timeout: int = 120, require_admin: bool = True) 
     if require_admin and not is_admin():
         return False, "Administrator access is required for this Windows optimization."
     try:
-        proc = subprocess.run(
-            ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
+        proc = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script], capture_output=True, text=True, timeout=timeout)
         out = (proc.stdout + "\n" + proc.stderr).strip()
         return proc.returncode == 0, out[-5000:]
     except subprocess.TimeoutExpired:
@@ -197,8 +199,7 @@ def run_powershell(script: str, timeout: int = 120, require_admin: bool = True) 
 
 
 def create_restore_point() -> tuple[bool, str]:
-    script = "Checkpoint-Computer -Description 'PNL50 Optimizer Pre-Optimization' -RestorePointType 'MODIFY_SETTINGS'"
-    ok, msg = run_powershell(script, timeout=90, require_admin=True)
+    ok, msg = run_powershell("Checkpoint-Computer -Description 'PNL50 Optimizer Pre-Optimization' -RestorePointType 'MODIFY_SETTINGS'", timeout=90)
     return ok, ("System restore point created." if ok else msg)
 
 
@@ -209,7 +210,7 @@ def enable_windows_game_mode() -> tuple[bool, str]:
 
 def normalize_network_stack() -> tuple[bool, str]:
     script = "netsh interface tcp set global autotuninglevel=normal; netsh interface tcp set global rss=enabled; 'TCP autotuning=normal, RSS=enabled.'"
-    return run_powershell(script, timeout=30, require_admin=True)
+    return run_powershell(script, timeout=30)
 
 
 def windows_component_cleanup() -> tuple[bool, str]:
@@ -233,20 +234,16 @@ def powercfg_balanced_report() -> tuple[bool, str]:
 
 
 def system_health_repair() -> tuple[bool, str]:
-    script = "sfc.exe /scannow; DISM.exe /Online /Cleanup-Image /RestoreHealth"
-    return run_powershell(script, timeout=1200)
+    return run_powershell("sfc.exe /scannow; DISM.exe /Online /Cleanup-Image /RestoreHealth", timeout=1200)
 
 
 def get_startup_items() -> list[dict]:
-    script = "Get-CimInstance Win32_StartupCommand | Select-Object Name,Command,Location,User | ConvertTo-Json -Compress"
-    ok, output = run_powershell(script, timeout=45, require_admin=False)
+    ok, output = run_powershell("Get-CimInstance Win32_StartupCommand | Select-Object Name,Command,Location,User | ConvertTo-Json -Compress", timeout=45, require_admin=False)
     if not ok:
         return []
     try:
         data = json.loads(output)
-        if isinstance(data, dict):
-            data = [data]
-        return data if isinstance(data, list) else []
+        return [data] if isinstance(data, dict) else data if isinstance(data, list) else []
     except Exception:
         return []
 
@@ -304,7 +301,3 @@ def start_optional_gaming_services() -> list[tuple[bool, str]]:
         except Exception as exc:
             results.append((False, f"Could not restore {display}: {exc}"))
     return results
-
-
-def flush_prefetch_cache() -> tuple[bool, str]:
-    return True, "Prefetch left intact; Windows manages it automatically for faster application launches."
