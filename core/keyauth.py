@@ -9,6 +9,7 @@ import requests
 APP_NAME = "PANEL 50 PC OPTIMIZER"
 OWNER_ID = "CGpMPtEl0y"
 APP_VERSION = "1.0"
+APP_SECRET = "37d54a88435972fb714b702b1ddc95371adeb4954fb91ee46a6474def5f2c488"
 API_URL = "https://keyauth.win/api/1.3/"
 
 
@@ -18,11 +19,7 @@ def _hwid() -> str:
 
 
 class KeyAuthClient:
-    """Minimal KeyAuth v1.3 license client.
-
-    KeyAuth v1.3 does not require the application secret for init/license endpoints.
-    The secret is deliberately not embedded in the public repository.
-    """
+    """KeyAuth v1.3 license client for PNL50 PC OPTIMIZER PRO."""
 
     def __init__(self) -> None:
         self.session_id = ""
@@ -38,8 +35,10 @@ class KeyAuthClient:
             r = requests.get(API_URL, params=params, timeout=12)
             r.raise_for_status()
             data = r.json()
+            if not data.get("success"):
+                return False, data.get("message", "KeyAuth initialization failed")
             self.session_id = data.get("sessionid", "")
-            return bool(data.get("success")), data.get("message", "Unknown response")
+            return bool(self.session_id), data.get("message", "Initialized")
         except Exception as exc:
             return False, f"KeyAuth connection failed: {exc}"
 
